@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Up infrastructure to catalog application
+Description: Up infrastructure catalog application
 
 Parameters:
   ClusterName: 
@@ -41,9 +41,9 @@ Parameters:
     Default: 'sat:07:00-sat:07:30'
   VPC:
     Type: String
-  PrivateSubnetOne:
+  SubnetOne:
     Type: String
-  PrivateSubnetTwo:
+  SubnetTwo:
     Type: String
 
 Mappings:
@@ -117,12 +117,10 @@ Resources:
 # -------------------------------------------------------------------------
 # Deploy Cluster rds aurora and instances W/R
 # -------------------------------------------------------------------------
-
   RDSSecret:
     Type: "AWS::SecretsManager::Secret"
     Properties:
       Description: "This is a Secrets Manager secret for an RDS DB instance"
-      Name: PodfyRDSSecrets
       GenerateSecretString:
         SecretStringTemplate: '{"username": "admin"}'
         GenerateStringKey: "password"
@@ -152,8 +150,8 @@ Resources:
     Properties:
       DBSubnetGroupDescription: !Ref 'AWS::StackName'
       SubnetIds: 
-        - !Ref PrivateSubnetOne
-        - !Ref PrivateSubnetTwo
+        - !Ref SubnetOne
+        - !Ref SubnetTwo
  
   DBCluster:
     DeletionPolicy: Snapshot
@@ -206,54 +204,9 @@ Resources:
       DBSubnetGroupName: !Ref DBSubnetGroup
       Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
 
-
-# -------------------------------------------------------------------------
-# Deploy Cluster Elastic cache
-# -------------------------------------------------------------------------
-  ElasticCacheParameter:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: PodfyCatalogElasticCache
-      Type: String
-      Value: !Sub '${ElasticCacheCluster.RedisEndpoint.Address}:${ElasticCacheCluster.RedisEndpoint.Port}'
-      Description: SSM Parameter of elastic cache.
-
-  ElasticCacheSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Ingress for Redis Cluster
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 6379
-          ToPort: 6379
-          CidrIp: 0.0.0.0/0
- 
-  ElasticCacheSubnetGroup:
-    Type: AWS::ElastiCache::SubnetGroup
-    Properties:
-      Description: "Cache Subnet Group"
-      SubnetIds:
-        - !Ref PrivateSubnetOne
-        - !Ref PrivateSubnetTwo
-
-  ElasticCacheCluster:
-    DependsOn: ElasticCacheSecurityGroup
-    Type: AWS::ElastiCache::CacheCluster
-    Properties:
-      AutoMinorVersionUpgrade: true
-      ClusterName: !Sub '${DBName}-cache'
-      Engine: redis
-      CacheNodeType: cache.t2.micro
-      NumCacheNodes: 1
-      VpcSecurityGroupIds:
-        - !GetAtt ElasticCacheSecurityGroup.GroupId
-      CacheSubnetGroupName: !Ref ElasticCacheSubnetGroup
-
 # -------------------------------------------------------------------------
 # Deploy Auto scaling to rds aurora
 # -------------------------------------------------------------------------
-
   AutoScalerTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
