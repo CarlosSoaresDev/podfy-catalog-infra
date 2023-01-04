@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Up infrastructure to catalog application
+
+Parameters:
+  ClusterName: 
+    Description: The name of the cluster ecs to create
+    Type: String
+  RepositoryName:
+    Description: Repository name to create
+    Type: String
+  Engine:
+    Description: 'Aurora engine and version'
+    Type: String
+    AllowedValues:
+    - '8.0.mysql-aurora.3.02.1'
+    - '8.0.mysql-aurora.3.02.0'
+    - '5.7.mysql-aurora.2.11.0'
+    - '5.7.mysql-aurora.2.10.1'
+    - '5.7.mysql-aurora.2.09.3'
+    - '5.7.mysql-aurora.2.09.2'
+    - '5.7.mysql-aurora.2.04.3'
+  DBInstanceClass:
+    Description: 'The instance type of database server.'
+    Type: String
+  DBName:
+    Description: 'Name of the database.'
+    Type: String
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the cluster.'
+    Type: Number
+    MinValue: 1
+    MaxValue: 35
+    Default: 30
+  PreferredBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
+    Type: String
+    Default: '09:54-10:24'
+  PreferredMaintenanceWindow:
+    Description: 'The weekly time range (in UTC) during which system maintenance can occur.'
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  VPC:
+    Type: String
+  PrivateSubnetOne:
+    Type: String
+  PrivateSubnetTwo:
+    Type: String
+
+Mappings:
+  EngineMap:
+    '8.0.mysql-aurora.3.02.1':
+      Engine: 'aurora-mysql'
+      EngineVersion: '8.0.mysql_aurora.3.02.1'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql8.0'
+      ParameterGroupFamily: 'aurora-mysql8.0'
+    '8.0.mysql-aurora.3.02.0':
+      Engine: 'aurora-mysql'
+      EngineVersion: '8.0.mysql_aurora.3.02.0'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql8.0'
+      ParameterGroupFamily: 'aurora-mysql8.0'
+    '5.7.mysql-aurora.2.11.0':
+      Engine: 'aurora-mysql'
+      EngineVersion: '5.7.mysql_aurora.2.11.0'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql5.7'
+      ParameterGroupFamily: 'aurora-mysql5.7'
+    '5.7.mysql-aurora.2.10.1':
+      Engine: 'aurora-mysql'
+      EngineVersion: '5.7.mysql_aurora.2.10.1'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql5.7'
+      ParameterGroupFamily: 'aurora-mysql5.7'
+    '5.7.mysql-aurora.2.09.3':
+      Engine: 'aurora-mysql'
+      EngineVersion: '5.7.mysql_aurora.2.09.3'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql5.7'
+      ParameterGroupFamily: 'aurora-mysql5.7'
+    '5.7.mysql-aurora.2.09.2':
+      Engine: 'aurora-mysql'
+      EngineVersion: '5.7.mysql_aurora.2.09.2'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql5.7'
+      ParameterGroupFamily: 'aurora-mysql5.7'
+    '5.7.mysql-aurora.2.04.3':
+      Engine: 'aurora-mysql'
+      EngineVersion: '5.7.mysql_aurora.2.04.3'
+      Port: 3306
+      ClusterParameterGroupFamily: 'aurora-mysql5.7'
+      ParameterGroupFamily: 'aurora-mysql5.7'
+
+Conditions:
+  HasEngineMySQL: !Equals [!FindInMap [EngineMap, !Ref Engine, Engine], 'aurora-mysql']
+
+Resources:
+
+# -------------------------------------------------------------------------
+# Deploy Cluster ecs with provider Fargate/spot and repository ECR
+# -------------------------------------------------------------------------
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName:  !Ref ClusterName
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+
+  RepositoryECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      ImageScanningConfiguration: 
+        ScanOnPush: false
+ 
+# -------------------------------------------------------------------------
+# Deploy Cluster rds aurora and instances W/R
+# -------------------------------------------------------------------------
+
+  RDSSecret:
+    Type: "AWS::SecretsManager::Secret"
+    Properties:
+      Description: "This is a Secrets Manager secret for an RDS DB instance"
+      Name: PodfyRDSSecrets
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  SecretRDSInstanceAttachment:
+    Type: "AWS::SecretsManager::SecretTargetAttachment"
+    Properties:
+      SecretId: !Ref RDSSecret
+      TargetId: !Ref DBCluster
+      TargetType: AWS::RDS::DBCluster
+
+  ClusterSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Ref 'AWS::StackName'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: !FindInMap [EngineMap, !Ref Engine, Port]
+        ToPort: !FindInMap [EngineMap, !Ref Engine, Port]
+        CidrIp: 0.0.0.0/0
+      
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Ref 'AWS::StackName'
+      SubnetIds: 
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+ 
+  DBCluster:
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      DatabaseName:  !Ref DBName
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
+      EngineMode: provisioned
+      EngineVersion: !FindInMap [EngineMap, !Ref Engine, EngineVersion]
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:password}}' ]]
+      Port: !FindInMap [EngineMap, !Ref Engine, Port]
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow  
+      VpcSecurityGroupIds:
+      - !Ref ClusterSecurityGroup
+
+  DBParameterGroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: !Ref 'AWS::StackName'
+      Family: !FindInMap [EngineMap, !Ref Engine, ParameterGroupFamily]
+
+  DBInstanceOne:  
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: true   
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBParameterGroupName: !Ref DBParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
+
+  DBInstanceTwo:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: true   
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBParameterGroupName: !Ref DBParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
+
+
+# -------------------------------------------------------------------------
+# Deploy Cluster Elastic cache
+# -------------------------------------------------------------------------
+  ElasticCacheParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: PodfyCatalogElasticCache
+      Type: String
+      Value: !Sub '${ElasticCacheCluster.RedisEndpoint.Address}:${ElasticCacheCluster.RedisEndpoint.Port}'
+      Description: SSM Parameter of elastic cache.
+
+  ElasticCacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Ingress for Redis Cluster
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 0.0.0.0/0
+ 
+  ElasticCacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: "Cache Subnet Group"
+      SubnetIds:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+
+  ElasticCacheCluster:
+    DependsOn: ElasticCacheSecurityGroup
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      AutoMinorVersionUpgrade: true
+      ClusterName: !Sub '${DBName}-cache'
+      Engine: redis
+      CacheNodeType: cache.t2.micro
+      NumCacheNodes: 1
+      VpcSecurityGroupIds:
+        - !GetAtt ElasticCacheSecurityGroup.GroupId
+      CacheSubnetGroupName: !Ref ElasticCacheSubnetGroup
+
+# -------------------------------------------------------------------------
+# Deploy Auto scaling to rds aurora
+# -------------------------------------------------------------------------
+
+  AutoScalerTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: 1
+      MaxCapacity: 8
+      ResourceId: !Sub "cluster:${DBCluster}"
+      ScalableDimension: rds:cluster:ReadReplicaCount
+      ServiceNamespace: rds
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/rds.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_RDSCluster"
+
+  AutoScaler:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      ScalingTargetId: !Ref AutoScalerTarget
+      ServiceNamespace: rds
+      PolicyName: RdsAuroraPodfyPolicy
+      PolicyType: TargetTrackingScaling
+      ScalableDimension: rds:cluster:ReadReplicaCount
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: RDSReaderAverageDatabaseConnections
+        TargetValue: 60.0
+        ScaleOutCooldown: 5
+        ScaleInCooldown: 5
+        DisableScaleIn: False
+
+
+Outputs:
+  TemplateID:
+    Description: 'cloudonaut.io template id.'
+    Value: 'state/rds-aurora'
+  TemplateVersion:
+    Description: 'cloudonaut.io template version.'
+    Value: '__VERSION__'
+  StackName:
+    Description: 'Stack name.'
+    Value: !Sub '${AWS::StackName}'
+  ClusterName:
+    Description: 'The name of the cluster.'
+    Value: !Ref DBCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+  SecurityGroupId:
+    Description: 'The security group used to manage access to RDS Aurora.'
+    Value: !Ref ClusterSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+

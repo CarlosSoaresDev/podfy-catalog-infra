@@ -1,0 +1,36 @@
+{
+  "Parameters": [
+    {
+      "ParameterKey": "ClusterName",
+      "ParameterValue": "catalog"
+    },
+    {
+      "ParameterKey": "RepositoryName",
+      "ParameterValue": "catalog-application"
+    },
+    {
+      "ParameterKey": "DBName",
+      "ParameterValue": "catalogcluster"
+    },
+    {
+      "ParameterKey": "DBInstanceClass",
+      "ParameterValue": "db.t3.medium"
+    },
+    {
+      "ParameterKey": "Engine",
+      "ParameterValue": "8.0.mysql-aurora.3.02.1"
+    },
+    {
+      "ParameterKey": "VPC",
+      "ParameterValue": "vpc-0ecfd34daa7187f16"
+    },
+    {
+      "ParameterKey": "PrivateSubnetOne",
+      "ParameterValue": "subnet-0186a359dd236722c"
+    },
+    {
+      "ParameterKey": "PrivateSubnetTwo",
+      "ParameterValue": "subnet-0082598fdd3a4eec3"
+    }
+  ]
+}
